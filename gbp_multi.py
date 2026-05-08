@@ -35,6 +35,7 @@ import gbp_state
 from gbp_validate import check_and_exit
 from gbp_selectors import SELECTORS
 from gbp_generator import generate_and_save_csv
+from gbp_image import prepare_image
 
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -228,6 +229,12 @@ async def publish_post(
             await desc_el.fill(description)
             await asyncio.sleep(0.3)
 
+        if image_path:
+            try:
+                image_path = str(prepare_image(image_path))
+            except Exception as img_err:
+                logger.warning(f"    ⚠️  Preprocessing immagine fallito: {img_err}")
+                image_path = ""
         if image_path and Path(image_path).exists():
             photo_btn = await find_el(frame, SELECTORS["PHOTO_BUTTON"], timeout=4000)
             if photo_btn:
@@ -239,8 +246,6 @@ async def publish_post(
                     await asyncio.sleep(4)
                 except Exception as e:
                     logger.warning(f"    ⚠️  Immagine: {e}")
-        elif image_path:
-            logger.warning(f"    ⚠️  Immagine non trovata: {image_path}")
 
         if cta_url:
             add_btn = await find_el(frame, SELECTORS["CTA_BUTTON"], timeout=4000)

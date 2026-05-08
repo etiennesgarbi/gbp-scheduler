@@ -31,6 +31,7 @@ load_dotenv()
 import gbp_state
 from gbp_validate import check_and_exit
 from gbp_selectors import SELECTORS
+from gbp_image import prepare_image
 
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -251,6 +252,12 @@ async def publish_post(
             await asyncio.sleep(0.3)
 
         # ── STEP 4: Carica l'immagine ──────────────────────────────────────────
+        if image_path:
+            try:
+                image_path = str(prepare_image(image_path))
+            except Exception as img_err:
+                logger.warning(f"    ⚠️  Preprocessing immagine fallito: {img_err}")
+                image_path = ""
         if image_path and Path(image_path).exists():
             photo_btn = await find_el(frame, SELECTORS["PHOTO_BUTTON"], timeout=4000)
             if photo_btn:
@@ -262,8 +269,6 @@ async def publish_post(
                     await asyncio.sleep(4)  # Attendi il completamento dell'upload
                 except Exception as e:
                     logger.warning(f"    ⚠️  Upload immagine: {e}")
-        elif image_path:
-            logger.warning(f"    ⚠️  Immagine non trovata: {image_path}")
 
         # ── STEP 5: Aggiungi CTA con link UTM ──────────────────────────────────
         if cta_url:

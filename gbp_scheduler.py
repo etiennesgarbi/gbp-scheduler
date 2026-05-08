@@ -13,11 +13,12 @@ SETUP:
     playwright install chrome
 
 USO:
-    python gbp_scheduler.py
+    python gbp_scheduler.py --client <slug>
 """
 
 import asyncio
 import csv
+import logging
 import os
 import sys
 from datetime import datetime
@@ -51,6 +52,31 @@ MONTHS_EN = {
     "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
     "july":7,"august":8,"september":9,"october":10,"november":11,"december":12
 }
+
+
+def setup_logging(run_ts: str) -> logging.Logger:
+    """Configura logging: console INFO + file DEBUG."""
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"gbp_{run_ts[:10]}.log"
+
+    logger = logging.getLogger("gbp")
+    logger.setLevel(logging.DEBUG)
+
+    if not logger.handlers:
+        # Console: INFO
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        ch.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(ch)
+
+        # File: DEBUG
+        fh = logging.FileHandler(log_file, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(fh)
+
+    return logger
 
 
 def parse_month_header(text: str):
@@ -96,7 +122,7 @@ async def get_post_frame(page):
     return None
 
 
-async def navigate_calendar(frame, month: int, year: int, max_steps: int = 30):
+async def navigate_calendar(frame, month: int, year: int, logger: logging.Logger, max_steps: int = 30):
     """
     Naviga il calendario al mese/anno target.
     Usa force=True per bypassare il tooltip che copre 'Mese successivo'.
@@ -128,14 +154,14 @@ async def navigate_calendar(frame, month: int, year: int, max_steps: int = 30):
             await asyncio.sleep(0.4)
 
         except Exception as e:
-            print(f"    ⚠️  Calendario: {e}")
+            logger.warning(f"    ⚠️  Calendario: {e}")
             break
     return False
 
 
-async def pick_date_time(frame, dt: datetime):
+async def pick_date_time(frame, dt: datetime, logger: logging.Logger):
     """Seleziona data e ora nel date picker di GBP."""
-    await navigate_calendar(frame, dt.month, dt.year)
+    await navigate_calendar(frame, dt.month, dt.year, logger)
     await asyncio.sleep(0.3)
 
     # Clicca il giorno corretto (i giorni del mese precedente sono duplicati
@@ -150,7 +176,7 @@ async def pick_date_time(frame, dt: datetime):
         await day_btn.click()
         await asyncio.sleep(0.3)
     else:
-        print(f"    ⚠️  Giorno {dt.day} non trovato")
+        logger.warning(f"    ⚠️  Giorno {dt.day} non trovato")
 
     # Imposta l'ora
     for selectors, value in [
@@ -165,7 +191,14 @@ async def pick_date_time(frame, dt: datetime):
             await field.fill(value)
 
 
-async def publish_post(page, post: dict) -> bool:
+async def publish_post(
+    page,
+    post: dict,
+    logger: logging.Logger,
+    run_ts: str,
+    location: str,
+    index: int,
+) -> bool:
     """
     Pubblica o programma un singolo post su GBP.
     Colonne CSV: title, description, date (YYYY-MM-DD HH:MM), image, cta_url, cta_type
@@ -178,8 +211,21 @@ async def publish_post(page, post: dict) -> bool:
     cta_type    = post.get("cta_type", "Learn more").strip()
 
     if not description:
-        print("    ⚠️  Descrizione vuota, salto.")
+        logger.warning("    ⚠️  Descrizione vuota, salto.")
         return False
+
+    slug = (title or description)[:30].replace(" ", "_").replace("/", "-")
+
+    async def save_failure_artifacts(reason: str) -> None:
+        """Salva screenshot e error.txt in caso di fallimento."""
+        artifact_dir = Path("logs") / f"run_{run_ts}" / location / f"{index}_{slug}"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            await page.screenshot(path=str(artifact_dir / "screenshot.png"))
+            logger.debug(f"    Screenshot salvato: {artifact_dir}/screenshot.png")
+        except Exception as ss_err:
+            logger.debug(f"    Screenshot fallito: {ss_err}")
+        (artifact_dir / "error.txt").write_text(reason, encoding="utf-8")
 
     try:
         # ── STEP 1: Apri il form "Aggiungi aggiornamento" ─────────────────────
@@ -190,7 +236,9 @@ async def publish_post(page, post: dict) -> bool:
             '[data-item-id="posts"] button',
         ])
         if not create_btn:
-            print("    ❌ Bottone 'Aggiungi aggiornamento' non trovato. Sei sulla pagina giusta?")
+            msg = "Bottone 'Aggiungi aggiornamento' non trovato. Sei sulla pagina giusta?"
+            logger.error(f"    ❌ {msg}")
+            await save_failure_artifacts(msg)
             return False
         await create_btn.click()
         await asyncio.sleep(2)
@@ -198,7 +246,9 @@ async def publish_post(page, post: dict) -> bool:
         # ── STEP 2: Trova il frame con il form (iframe nascosto) ──────────────
         frame = await get_post_frame(page)
         if not frame:
-            print("    ❌ Form iframe non trovato")
+            msg = "Form iframe non trovato"
+            logger.error(f"    ❌ {msg}")
+            await save_failure_artifacts(msg)
             return False
 
         # ── STEP 3: Compila la descrizione ────────────────────────────────────
@@ -230,9 +280,9 @@ async def publish_post(page, post: dict) -> bool:
                     await fc.set_files(image_path)
                     await asyncio.sleep(4)  # Attendi il completamento dell'upload
                 except Exception as e:
-                    print(f"    ⚠️  Upload immagine: {e}")
+                    logger.warning(f"    ⚠️  Upload immagine: {e}")
         elif image_path:
-            print(f"    ⚠️  Immagine non trovata: {image_path}")
+            logger.warning(f"    ⚠️  Immagine non trovata: {image_path}")
 
         # ── STEP 5: Aggiungi CTA con link UTM ──────────────────────────────────
         if cta_url:
@@ -283,12 +333,12 @@ async def publish_post(page, post: dict) -> bool:
                 if sched_el:
                     await sched_el.click()
                     await asyncio.sleep(0.5)
-                    await pick_date_time(frame, dt)
+                    await pick_date_time(frame, dt, logger)
                 else:
-                    print("    ⚠️  Opzione 'Programma' non trovata, pubblico subito")
+                    logger.warning("    ⚠️  Opzione 'Programma' non trovata, pubblico subito")
 
             except ValueError:
-                print(f"    ⚠️  Formato data non valido: '{date_str}' (usa YYYY-MM-DD HH:MM)")
+                logger.warning(f"    ⚠️  Formato data non valido: '{date_str}' (usa YYYY-MM-DD HH:MM)")
 
         # ── STEP 7: Clicca "Pubblica" / "Programma" ────────────────────────────
         publish_btn = await find_el(frame, [
@@ -302,30 +352,32 @@ async def publish_post(page, post: dict) -> bool:
         if publish_btn:
             await publish_btn.click()
             await asyncio.sleep(3)
-            print(f"    ✅ Pubblicato: {(title or description)[:55]}")
+            logger.info(f"    ✅ Pubblicato: {(title or description)[:55]}")
             return True
         else:
-            print("    ❌ Bottone 'Pubblica' non trovato")
-            await page.screenshot(path=f"debug_{datetime.now().strftime('%H%M%S')}.png")
+            msg = "Bottone 'Pubblica' non trovato"
+            logger.error(f"    ❌ {msg}")
+            await save_failure_artifacts(msg)
             return False
 
     except Exception as e:
-        print(f"    ❌ Errore imprevisto: {e}")
-        try:
-            await page.screenshot(path=f"debug_error_{datetime.now().strftime('%H%M%S')}.png")
-        except Exception:
-            pass
+        msg = f"Errore imprevisto: {e}"
+        logger.error(f"    ❌ {msg}")
+        await save_failure_artifacts(msg)
         return False
 
 
 async def main():
     check_and_exit(CSV_FILE)
 
+    run_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    logger = setup_logging(run_ts)
+
     # ── Leggi il CSV ──────────────────────────────────────────────────────────
     csv_path = Path(CSV_FILE)
     if not csv_path.exists():
-        print(f"❌ File non trovato: {CSV_FILE}")
-        print("   Crea 'posts.csv' con colonne: title, description, date, image, cta_url, cta_type")
+        logger.error(f"❌ File non trovato: {CSV_FILE}")
+        logger.error("   Crea 'posts.csv' con colonne: title, description, date, image, cta_url, cta_type")
         sys.exit(1)
 
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -335,15 +387,15 @@ async def main():
 
     total = len(posts)
     if total == 0:
-        print("❌ Nessun post valido nel CSV.")
+        logger.error("❌ Nessun post valido nel CSV.")
         sys.exit(1)
 
     est_min = total * 50 // 60
-    print(f"\n{'═'*55}")
-    print(f"  📋  Post trovati: {total}")
-    print(f"  ⏱️   Tempo stimato: ~{est_min} min ({total} × ~50 sec)")
-    print(f"  📁  Profilo Chrome: {Path(CHROME_PROFILE).resolve()}")
-    print(f"{'═'*55}\n")
+    logger.info(f"\n{'═'*55}")
+    logger.info(f"  📋  Post trovati: {total}")
+    logger.info(f"  ⏱️   Tempo stimato: ~{est_min} min ({total} × ~50 sec)")
+    logger.info(f"  📁  Profilo Chrome: {Path(CHROME_PROFILE).resolve()}")
+    logger.info(f"{'═'*55}\n")
 
     async with async_playwright() as p:
         # ── Lancia Chrome con profilo persistente ─────────────────────────────
@@ -370,14 +422,14 @@ async def main():
         await asyncio.sleep(2)
 
         if "accounts.google.com" in page.url or "signin" in page.url.lower():
-            print("⚠️  Non sei loggato.")
-            print("   Accedi a Google nel browser aperto, poi torna qui e premi INVIO.")
+            logger.warning("⚠️  Non sei loggato.")
+            logger.info("   Accedi a Google nel browser aperto, poi torna qui e premi INVIO.")
             input()
             await page.goto(GBP_URL, wait_until="domcontentloaded")
             await asyncio.sleep(2)
 
-        print("ℹ️  Assicurati di essere sulla pagina della sede GBP corretta.")
-        print("   Premi INVIO per iniziare...\n")
+        logger.info("ℹ️  Assicurati di essere sulla pagina della sede GBP corretta.")
+        logger.info("   Premi INVIO per iniziare...\n")
         input()
 
         # ── Loop principale sui post ───────────────────────────────────────────
@@ -389,12 +441,12 @@ async def main():
             post_id = gbp_state.make_post_id(post.get("title",""), post.get("date",""), "single")
 
             if gbp_state.is_done(post_id):
-                print(f"[{i:>3}/{total}] ⏭️  Già pubblicato, salto: {preview}")
+                logger.info(f"[{i:>3}/{total}] ⏭️  Già pubblicato, salto: {preview}")
                 continue
 
-            print(f"[{i:>3}/{total}] 📝  {preview}")
+            logger.info(f"[{i:>3}/{total}] 📝  {preview}")
 
-            success = await publish_post(page, post)
+            success = await publish_post(page, post, logger, run_ts, "single", i)
             gbp_state.update_post(post_id, "published" if success else "failed")
             if success:
                 ok_count += 1
@@ -406,12 +458,12 @@ async def main():
             await asyncio.sleep(DELAY_POST)
 
         # ── Report finale ──────────────────────────────────────────────────────
-        print(f"\n{'═'*55}")
-        print(f"  🏁  COMPLETATO")
-        print(f"  ✅  Pubblicati: {ok_count}")
-        print(f"  ❌  Falliti:    {fail_count}")
-        print(f"  📝  Totale:     {total}")
-        print(f"{'═'*55}\n")
+        logger.info(f"\n{'═'*55}")
+        logger.info(f"  🏁  COMPLETATO")
+        logger.info(f"  ✅  Pubblicati: {ok_count}")
+        logger.info(f"  ❌  Falliti:    {fail_count}")
+        logger.info(f"  📝  Totale:     {total}")
+        logger.info(f"{'═'*55}\n")
 
         await context.close()
 

@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 import gbp_state
+from gbp_validate import check_and_exit
 
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -318,6 +319,8 @@ async def publish_post(page, post: dict) -> bool:
 
 
 async def main():
+    check_and_exit(CSV_FILE)
+
     # ── Leggi il CSV ──────────────────────────────────────────────────────────
     csv_path = Path(CSV_FILE)
     if not csv_path.exists():

@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 
 import gbp_state
+from gbp_validate import check_and_exit
 
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -292,6 +293,7 @@ async def main():
             r["keywords"], r["cta_url"], DATA_INIZIO
         )
         if csv_file:
+            check_and_exit(csv_file)
             csv_files[r["nome"]] = csv_file
 
     if not csv_files:

@@ -27,6 +27,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import gbp_state
+
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 except ImportError:
@@ -242,12 +244,21 @@ async def processa_sede(page, ristorante, csv_file):
     with open(csv_file, newline="", encoding="utf-8") as f:
         posts = [r for r in csv.DictReader(f) if r.get("description","").strip()]
 
+    gbp_state.load_state(csv_file, nome, posts)
+
     total = len(posts)
     ok = fail = 0
     for i, post in enumerate(posts, 1):
         preview = post.get("title", post.get("description",""))[:45]
+        post_id = gbp_state.make_post_id(post.get("title",""), post.get("date",""), nome)
+
+        if gbp_state.is_done(post_id):
+            print(f"    [{i}/{total}] ⏭️  Già pubblicato, salto: {preview}")
+            continue
+
         print(f"    [{i}/{total}] {preview}")
         success = await publish_post(page, post)
+        gbp_state.update_post(post_id, "published" if success else "failed")
         if success: ok += 1
         else: fail += 1
         await page.goto(GBP_LOCATIONS, wait_until="domcontentloaded")

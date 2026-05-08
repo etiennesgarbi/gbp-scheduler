@@ -23,6 +23,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import gbp_state
+
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 except ImportError:
@@ -326,6 +328,8 @@ async def main():
     with open(csv_path, newline="", encoding="utf-8") as f:
         posts = [r for r in csv.DictReader(f) if r.get("description", "").strip()]
 
+    gbp_state.load_state(CSV_FILE, "single", posts)
+
     total = len(posts)
     if total == 0:
         print("❌ Nessun post valido nel CSV.")
@@ -379,9 +383,16 @@ async def main():
 
         for i, post in enumerate(posts, 1):
             preview = (post.get("title") or post.get("description", "Senza titolo"))[:45]
+            post_id = gbp_state.make_post_id(post.get("title",""), post.get("date",""), "single")
+
+            if gbp_state.is_done(post_id):
+                print(f"[{i:>3}/{total}] ⏭️  Già pubblicato, salto: {preview}")
+                continue
+
             print(f"[{i:>3}/{total}] 📝  {preview}")
 
             success = await publish_post(page, post)
+            gbp_state.update_post(post_id, "published" if success else "failed")
             if success:
                 ok_count += 1
             else:

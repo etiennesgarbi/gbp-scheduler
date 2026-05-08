@@ -34,7 +34,7 @@ load_dotenv()
 import gbp_state
 from gbp_validate import check_and_exit
 from gbp_selectors import SELECTORS
-from gbp_generator import generate_and_save_csv
+from gbp_generator import generate_and_save_csv, generate_posts, build_utm_url
 from gbp_image import prepare_image
 
 try:
@@ -319,10 +319,30 @@ async def publish_with_retry(
 
 
 def genera_csv_per_sede(nome: str, citta: str, quartiere: str, keywords: str, cta_url: str, data_inizio: str, logger: logging.Logger) -> str | None:
-    """Genera il CSV dei post per una sede tramite Anthropic SDK."""
+    """
+    Genera il CSV dei post per una sede tramite Anthropic SDK.
+    Applica UTM auto-generati a ciascun cta_url prima di salvare.
+    """
+    import csv as csv_module
     logger.info(f"  🤖 Anthropic SDK genera post per {nome}...")
     try:
-        output_csv = generate_and_save_csv(nome, citta, quartiere, keywords, cta_url, data_inizio)
+        posts = generate_posts(nome, citta, quartiere, keywords, cta_url, data_inizio)
+        primary_keyword = keywords.split(",")[0].strip() if keywords else nome
+
+        # Applica UTM a ogni post
+        for post in posts:
+            base = post.get("cta_url") or cta_url
+            if base:
+                post["cta_url"] = build_utm_url(base, nome, post.get("title", ""), primary_keyword)
+
+        slug = nome.replace(" ", "_").replace("|", "").replace("/", "").lower().strip("_")
+        output_csv = f"posts_{slug}.csv"
+        fieldnames = ["title", "description", "date", "image", "cta_url", "cta_type"]
+        with open(output_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv_module.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(posts)
+
         logger.info(f"  ✅ CSV salvato: {output_csv}")
         return output_csv
     except Exception as e:

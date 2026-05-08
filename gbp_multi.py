@@ -308,6 +308,36 @@ async def publish_post(
         return False
 
 
+async def publish_with_retry(
+    page,
+    post: dict,
+    post_id: str,
+    logger: logging.Logger,
+    run_ts: str,
+    location: str,
+    index: int,
+    max_attempts: int = 3,
+) -> bool:
+    """
+    Tenta di pubblicare un post con backoff esponenziale.
+    Attese: 5s dopo il 1° fallimento, 15s dopo il 2°.
+    """
+    delays = [0, 5, 15]
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            wait = delays[attempt - 1]
+            logger.warning(f"    ⏳ Tentativo {attempt}/{max_attempts} dopo {wait}s...")
+            await asyncio.sleep(wait)
+            await page.reload(wait_until="domcontentloaded")
+            await asyncio.sleep(2)
+        success = await publish_post(page, post, logger, run_ts, location, index)
+        if success:
+            gbp_state.update_post(post_id, "published")
+            return True
+    gbp_state.update_post(post_id, "failed", error=f"Fallito dopo {max_attempts} tentativi")
+    return False
+
+
 def genera_csv_con_claude(nome: str, citta: str, quartiere: str, keywords: str, cta_url: str, data_inizio: str, logger: logging.Logger) -> str | None:
     """Usa Claude Code -p per ottenere il CSV come testo, poi lo salva Python."""
     output_csv = f"posts_{nome.replace(' ', '_').lower()}.csv"
@@ -379,8 +409,7 @@ async def processa_sede(page, ristorante: dict, csv_file: str, logger: logging.L
             continue
 
         logger.info(f"    [{i}/{total}] {preview}")
-        success = await publish_post(page, post, logger, run_ts, nome, i)
-        gbp_state.update_post(post_id, "published" if success else "failed")
+        success = await publish_with_retry(page, post, post_id, logger, run_ts, nome, i)
         if success:
             ok += 1
         else:

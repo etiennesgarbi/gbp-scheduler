@@ -16,6 +16,7 @@ USO:
     python gbp_scheduler.py --client <slug>
 """
 
+import argparse
 import asyncio
 import csv
 import logging
@@ -401,22 +402,30 @@ async def publish_with_retry(
 
 
 async def main():
-    check_and_exit(CSV_FILE)
+    parser = argparse.ArgumentParser(description="GBP Post Scheduler")
+    parser.add_argument("--client", default="default", help="Slug del cliente (es. miscusi)")
+    parser.add_argument("--csv", default=os.getenv("GBP_CSV_FILE", "posts.csv"), help="Percorso CSV")
+    args = parser.parse_args()
+    client_slug = args.client
+    csv_file_arg = args.csv
+    chrome_profile_dir = f"./profiles/{client_slug}"
+
+    check_and_exit(csv_file_arg)
 
     run_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
     logger = setup_logging(run_ts)
 
     # ── Leggi il CSV ──────────────────────────────────────────────────────────
-    csv_path = Path(CSV_FILE)
+    csv_path = Path(csv_file_arg)
     if not csv_path.exists():
-        logger.error(f"❌ File non trovato: {CSV_FILE}")
+        logger.error(f"❌ File non trovato: {csv_file_arg}")
         logger.error("   Crea 'posts.csv' con colonne: title, description, date, image, cta_url, cta_type")
         sys.exit(1)
 
     with open(csv_path, newline="", encoding="utf-8") as f:
         posts = [r for r in csv.DictReader(f) if r.get("description", "").strip()]
 
-    gbp_state.load_state(CSV_FILE, "single", posts)
+    gbp_state.load_state(csv_file_arg, "single", posts)
 
     total = len(posts)
     if total == 0:
@@ -427,7 +436,7 @@ async def main():
     logger.info(f"\n{'═'*55}")
     logger.info(f"  📋  Post trovati: {total}")
     logger.info(f"  ⏱️   Tempo stimato: ~{est_min} min ({total} × ~50 sec)")
-    logger.info(f"  📁  Profilo Chrome: {Path(CHROME_PROFILE).resolve()}")
+    logger.info(f"  📁  Profilo Chrome: {Path(chrome_profile_dir).resolve()}")
     logger.info(f"{'═'*55}\n")
 
     async with async_playwright() as p:
@@ -438,7 +447,7 @@ async def main():
         #    launch_persistent_context()     → salva la sessione su disco
         #                                      Login una sola volta → valido per sempre
         context = await p.chromium.launch_persistent_context(
-            user_data_dir=CHROME_PROFILE,
+            user_data_dir=chrome_profile_dir,
             channel="chrome",
             headless=HEADLESS,
             args=[

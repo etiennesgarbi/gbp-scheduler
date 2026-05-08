@@ -19,6 +19,7 @@ USO:
     python gbp_multi.py --client <slug>
 """
 
+import argparse
 import asyncio
 import csv
 import logging
@@ -426,6 +427,13 @@ async def processa_sede(page, ristorante: dict, csv_file: str, logger: logging.L
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="GBP Post Scheduler")
+    parser.add_argument("--client", default="default", help="Slug del cliente (es. miscusi)")
+    parser.add_argument("--csv", default=os.getenv("GBP_CSV_FILE", "posts.csv"), help="Percorso CSV (solo gbp_scheduler)")
+    args = parser.parse_args()
+    client_slug = args.client
+    chrome_profile_dir = f"./profiles/{client_slug}"
+
     run_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
     logger = setup_logging(run_ts)
 
@@ -462,7 +470,7 @@ async def main():
     # ── FASE 2: Pubblica su GBP per ogni sede ────────────────────────
     async with async_playwright() as p:
         context = await p.chromium.launch_persistent_context(
-            user_data_dir=CHROME_PROFILE,
+            user_data_dir=chrome_profile_dir,
             channel="chrome",
             headless=HEADLESS,
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],

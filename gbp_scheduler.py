@@ -24,6 +24,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import gbp_state
 from gbp_validate import check_and_exit
 
@@ -35,13 +38,13 @@ except ImportError:
     sys.exit(1)
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  CONFIGURAZIONE — modifica qui prima di lanciare lo script
+#  CONFIGURAZIONE — usa .env per sovrascrivere i valori di default
 # ──────────────────────────────────────────────────────────────────────────────
-CSV_FILE       = "posts.csv"         # Il tuo CSV con i post
-CHROME_PROFILE = "./chrome-profile"  # Profilo Chrome persistente (login una sola volta)
+CSV_FILE       = os.getenv("GBP_CSV_FILE", "posts.csv")
+CHROME_PROFILE = os.getenv("GBP_CHROME_PROFILE", "./chrome-profile")
 GBP_URL        = "https://business.google.com"
-DELAY_POST     = 5                   # Secondi di pausa tra un post e l'altro
-HEADLESS       = False               # False = vedi il browser (consigliato)
+DELAY_POST     = int(os.getenv("GBP_DELAY_POST", "5"))
+HEADLESS       = os.getenv("GBP_HEADLESS", "false").lower() == "true"
 # ──────────────────────────────────────────────────────────────────────────────
 
 MONTHS_IT = {

@@ -28,6 +28,9 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import gbp_state
 from gbp_validate import check_and_exit
 
@@ -39,11 +42,11 @@ except ImportError:
 
 # ──────────────────────────────────────────────────────────────────
 RISTORANTI_CSV  = "ristoranti.csv"
-CHROME_PROFILE  = "./chrome-profile"
+CHROME_PROFILE  = os.getenv("GBP_CHROME_PROFILE", "./chrome-profile")
 GBP_LOCATIONS   = "https://business.google.com/locations"
-DATA_INIZIO     = "2026-05-05"
-DELAY_POST      = 5
-HEADLESS        = False
+DATA_INIZIO     = os.getenv("GBP_DATA_INIZIO", "2026-05-05")
+DELAY_POST      = int(os.getenv("GBP_DELAY_POST", "5"))
+HEADLESS        = os.getenv("GBP_HEADLESS", "false").lower() == "true"
 # ──────────────────────────────────────────────────────────────────
 
 MONTHS_IT = {"gennaio":1,"febbraio":2,"marzo":3,"aprile":4,"maggio":5,"giugno":6,

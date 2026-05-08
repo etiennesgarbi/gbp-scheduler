@@ -1,0 +1,9 @@
+.env
+profiles/
+chrome-profile/
+*.db
+__pycache__/
+*.pyc
+logs/
+cache/
+state.db

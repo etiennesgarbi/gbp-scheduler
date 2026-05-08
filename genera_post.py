@@ -19,6 +19,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+from dotenv import load_dotenv
+load_dotenv()
+
 try:
     import anthropic
 except ImportError:
@@ -28,7 +31,7 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────────
 #  CONFIGURAZIONE — modifica qui
 # ──────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY = "sk-ant-INSERISCI-LA-TUA-KEY-QUI"
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # Le tue keyword (aggiungine quante vuoi)
 KEYWORDS = [
@@ -145,9 +148,9 @@ def main():
     print(f"  📅  Dal: {DATA_INIZIO} | Frequenza: {FREQUENZA}")
     print(f"{'═'*55}\n")
 
-    if "INSERISCI-LA-TUA-KEY" in ANTHROPIC_API_KEY:
-        print("❌ Devi inserire la tua API key di Anthropic!")
-        print("   Modifica la variabile ANTHROPIC_API_KEY in questo file.")
+    if not ANTHROPIC_API_KEY:
+        print("❌ ANTHROPIC_API_KEY non trovata!")
+        print("   Copia .env.example in .env e inserisci la tua chiave API.")
         print("   Ottienila su: https://console.anthropic.com")
         sys.exit(1)
 

@@ -25,7 +25,6 @@ import csv
 import logging
 import os
 import sys
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -35,6 +34,7 @@ load_dotenv()
 import gbp_state
 from gbp_validate import check_and_exit
 from gbp_selectors import SELECTORS
+from gbp_generator import generate_and_save_csv
 
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -313,36 +313,16 @@ async def publish_with_retry(
     return False
 
 
-def genera_csv_con_claude(nome: str, citta: str, quartiere: str, keywords: str, cta_url: str, data_inizio: str, logger: logging.Logger) -> str | None:
-    """Usa Claude Code -p per ottenere il CSV come testo, poi lo salva Python."""
-    output_csv = f"posts_{nome.replace(' ', '_').lower()}.csv"
-    prompt = (
-        f"Genera esattamente 12 righe CSV per post GBP di {nome}, "
-        f"ristorante di pasta fresca a {quartiere}, {citta}. "
-        f"Keyword da usare nei testi: {keywords}. "
-        f"Ogni title max 58 caratteri, description 150-300 caratteri SEO con CTA finale. "
-        f"Date settimanali dal {data_inizio} alle 10:00. "
-        f"cta_url per tutte le righe: {cta_url}. "
-        f"Rispondi SOLO in formato CSV puro, nessun testo prima o dopo. "
-        f"Prima riga = intestazione esatta: title,description,date,image,cta_url,cta_type. "
-        f"La colonna image lasciala vuota."
-    )
-    logger.info(f"  🤖 Claude Code genera post per {nome}...")
-    result = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True)
-    if result.returncode != 0:
-        logger.error(f"  ❌ Errore Claude Code: {result.stderr[:150]}")
+def genera_csv_per_sede(nome: str, citta: str, quartiere: str, keywords: str, cta_url: str, data_inizio: str, logger: logging.Logger) -> str | None:
+    """Genera il CSV dei post per una sede tramite Anthropic SDK."""
+    logger.info(f"  🤖 Anthropic SDK genera post per {nome}...")
+    try:
+        output_csv = generate_and_save_csv(nome, citta, quartiere, keywords, cta_url, data_inizio)
+        logger.info(f"  ✅ CSV salvato: {output_csv}")
+        return output_csv
+    except Exception as e:
+        logger.error(f"  ❌ Errore generazione CSV: {e}")
         return None
-    output = result.stdout.strip()
-    if not output:
-        logger.error("  ❌ Claude non ha restituito nulla")
-        return None
-    # Rimuove eventuale blocco markdown ```csv ... ```
-    lines = [l for l in output.split("\n") if not l.strip().startswith("```")]
-    output = "\n".join(lines).strip()
-    with open(output_csv, "w", encoding="utf-8") as f:
-        f.write(output)
-    logger.info(f"  ✅ CSV salvato: {output_csv}")
-    return output_csv
 
 
 async def processa_sede(page, ristorante: dict, csv_file: str, logger: logging.Logger, run_ts: str) -> tuple[int, int]:
@@ -426,7 +406,7 @@ async def main():
     # ── FASE 1: Genera CSV per ogni sede con Claude Code ─────────────
     csv_files = {}
     for r in ristoranti:
-        csv_file = genera_csv_con_claude(
+        csv_file = genera_csv_per_sede(
             r["nome"], r["citta"], r["quartiere"],
             r["keywords"], r["cta_url"], DATA_INIZIO,
             logger,

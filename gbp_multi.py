@@ -34,6 +34,7 @@ load_dotenv()
 
 import gbp_state
 from gbp_validate import check_and_exit
+from gbp_selectors import SELECTORS
 
 try:
     from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -125,7 +126,7 @@ async def navigate_calendar(frame, month: int, year: int, logger: logging.Logger
     """Naviga il calendario al mese/anno target."""
     for _ in range(max_steps):
         try:
-            header = frame.locator('[role="heading"], [aria-live="polite"]').first
+            header = frame.locator(", ".join(SELECTORS["CALENDAR_HEADING"])).first
             text = await header.inner_text(timeout=3000)
             parsed = parse_month_header(text)
             if not parsed:
@@ -134,9 +135,9 @@ async def navigate_calendar(frame, month: int, year: int, logger: logging.Logger
             if cur_m == month and cur_y == year:
                 return True
             if (cur_y, cur_m) < (year, month):
-                btn = frame.locator('[aria-label*="next month" i], [aria-label*="mese successivo" i]').first
+                btn = frame.locator(", ".join(SELECTORS["NEXT_MONTH_BTN"])).first
             else:
-                btn = frame.locator('[aria-label*="prev month" i], [aria-label*="mese precedente" i]').first
+                btn = frame.locator(", ".join(SELECTORS["PREV_MONTH_BTN"])).first
             await btn.click(force=True)
             await asyncio.sleep(0.4)
         except Exception as e:
@@ -159,8 +160,8 @@ async def pick_date_time(frame, dt: datetime, logger: logging.Logger):
     else:
         logger.warning(f"    ⚠️  Giorno {dt.day} non trovato")
     for selectors, value in [
-        (['input[aria-label*="hour" i]', 'input[placeholder="HH"]'], str(dt.hour).zfill(2)),
-        (['input[aria-label*="minute" i]', 'input[placeholder="MM"]'], str(dt.minute).zfill(2)),
+        (SELECTORS["HOUR_INPUT"], str(dt.hour).zfill(2)),
+        (SELECTORS["MINUTE_INPUT"], str(dt.minute).zfill(2)),
     ]:
         field = await find_el(frame, selectors, timeout=3000)
         if field:
@@ -205,11 +206,7 @@ async def publish_post(
         (artifact_dir / "error.txt").write_text(reason, encoding="utf-8")
 
     try:
-        create_btn = await find_el(page, [
-            'button:has-text("Add update")',
-            'button:has-text("Aggiungi aggiornamento")',
-            '[aria-label*="Add update" i]',
-        ])
+        create_btn = await find_el(page, SELECTORS["ADD_UPDATE_BUTTON"])
         if not create_btn:
             msg = "Bottone 'Aggiungi aggiornamento' non trovato"
             logger.error(f"    ❌ {msg}")
@@ -225,21 +222,14 @@ async def publish_post(
             await save_failure_artifacts(msg)
             return False
 
-        desc_el = await find_el(frame, [
-            'textarea[placeholder*="news" i]',
-            '[contenteditable="true"]',
-            'textarea',
-        ])
+        desc_el = await find_el(frame, SELECTORS["DESCRIPTION_TEXTAREA"])
         if desc_el:
             await desc_el.click()
             await desc_el.fill(description)
             await asyncio.sleep(0.3)
 
         if image_path and Path(image_path).exists():
-            photo_btn = await find_el(frame, [
-                'button[aria-label*="photo" i]',
-                'button:has-text("Add photos")',
-            ], timeout=4000)
+            photo_btn = await find_el(frame, SELECTORS["PHOTO_BUTTON"], timeout=4000)
             if photo_btn:
                 try:
                     async with page.expect_file_chooser(timeout=5000) as fc_info:
@@ -253,17 +243,11 @@ async def publish_post(
             logger.warning(f"    ⚠️  Immagine non trovata: {image_path}")
 
         if cta_url:
-            add_btn = await find_el(frame, [
-                'button:has-text("Add a button")',
-                'button:has-text("Aggiungi un pulsante")',
-            ], timeout=4000)
+            add_btn = await find_el(frame, SELECTORS["CTA_BUTTON"], timeout=4000)
             if add_btn:
                 await add_btn.click()
                 await asyncio.sleep(0.5)
-                url_field = await find_el(frame, [
-                    'input[type="url"]',
-                    'input[placeholder*="URL" i]',
-                ], timeout=3000)
+                url_field = await find_el(frame, SELECTORS["CTA_URL_INPUT"], timeout=3000)
                 if url_field:
                     await url_field.fill(cta_url)
                     await asyncio.sleep(0.3)
@@ -271,11 +255,7 @@ async def publish_post(
         if date_str:
             try:
                 dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
-                sched_el = await find_el(frame, [
-                    'input[value*="SCHEDULED" i]',
-                    'label:has-text("Schedule")',
-                    'label:has-text("Programma")',
-                ], timeout=4000)
+                sched_el = await find_el(frame, SELECTORS["SCHEDULE_TOGGLE"], timeout=4000)
                 if sched_el:
                     await sched_el.click()
                     await asyncio.sleep(0.5)
@@ -285,13 +265,7 @@ async def publish_post(
             except ValueError:
                 logger.warning(f"    ⚠️  Formato data non valido: {date_str}")
 
-        publish_btn = await find_el(frame, [
-            'button:has-text("Schedule")',
-            'button:has-text("Programma")',
-            'button:has-text("Publish")',
-            'button:has-text("Pubblica")',
-            'button[type="submit"]',
-        ], timeout=5000)
+        publish_btn = await find_el(frame, SELECTORS["PUBLISH_BUTTON"], timeout=5000)
         if publish_btn:
             await publish_btn.click()
             await asyncio.sleep(3)

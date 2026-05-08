@@ -3,95 +3,129 @@
 Automatizza la generazione e pubblicazione di post su Google Business Profile.
 
 ## File inclusi
-- `gbp_scheduler.py` → pubblica un CSV su una singola sede GBP
-- `gbp_multi.py` → genera e pubblica post per più sedi da un unico account GBP
-- `genera_post.py` → opzionale, genera `posts.csv` via API Anthropic
-- `posts.csv` → esempio CSV per una sede singola
-- `ristoranti.csv` → elenco sedi per la modalità multi-location
+
+| File | Scopo |
+|------|-------|
+| `gbp_scheduler.py` | Pubblica un CSV su una singola sede GBP |
+| `gbp_multi.py` | Genera e pubblica post per più sedi |
+| `genera_post.py` | Genera `posts.csv` via API Anthropic (singola sede) |
+| `gbp_state.py` | Stato persistente SQLite — idempotenza |
+| `gbp_validate.py` | Validazione pre-flight CSV |
+| `gbp_selectors.py` | Selettori Playwright centralizzati |
+| `gbp_generator.py` | Generazione post via Anthropic SDK + UTM builder |
+| `gbp_image.py` | Preprocessing immagini con Pillow |
+| `gbp_discover.py` | Auto-discovery sedi GBP via API Google |
+| `gbp_metrics.py` | Raccolta metriche GBP mensili via API Google |
 
 ---
 
 ## Setup
 
-Installa dipendenze:
+### 1. Installa dipendenze
 ```bash
-pip install playwright
+pip install -r requirements.txt
 python3 -m playwright install chrome
 ```
 
-Se vuoi usare Claude Code in locale, assicurati che il comando `claude` sia già installato e funzioni.
+### 2. Configura le variabili d'ambiente
+```bash
+cp .env.example .env
+# Modifica .env e inserisci la tua ANTHROPIC_API_KEY
+```
+
+Variabili disponibili in `.env`:
+```
+ANTHROPIC_API_KEY=sk-ant-...        # Obbligatoria per generare post
+GBP_CHROME_PROFILE=./chrome-profile # Profilo Chrome (default: ./chrome-profile)
+GBP_HEADLESS=false                  # false = vedi il browser
+GBP_DELAY_POST=5                    # Secondi di pausa tra un post e l'altro
+GBP_DATA_INIZIO=2026-05-05          # Data di partenza post per gbp_multi
+```
+
+Per Sprint 3 (API Google), aggiungi anche:
+```
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+```
 
 ---
 
 ## Modalità 1 — Una sede singola
 
-### 1. Genera il CSV con Claude Code
+### 1. Genera il CSV
 ```bash
-claude "Genera 12 post GBP per [nome attività] a [città]. Keyword: [lista keyword]. Title max 58 caratteri, description 150-300 caratteri SEO con CTA. Date settimanali dal 2026-05-05 10:00. Salva in posts.csv con colonne: title,description,date,image,cta_url,cta_type. Lascia image e cta_url vuote."
+python3 genera_post.py
 ```
+Oppure crea manualmente `posts.csv` con colonne: `title, description, date, image, cta_url, cta_type`.
 
-### 2. Aggiungi i link in `cta_url`
-Apri `posts.csv` con Excel/Numbers/Sheets e inserisci il link con UTM.
+### 2. Valida il CSV
+```bash
+python3 gbp_validate.py posts.csv
+```
 
 ### 3. Pubblica
 ```bash
-python3 gbp_scheduler.py
+python3 gbp_scheduler.py --client <slug>
 ```
+Esempio: `python3 gbp_scheduler.py --client miscusi-roma`
+
 Si apre Chrome → login Google → vai alla sede corretta → premi INVIO.
+
+Lo script salta automaticamente i post già pubblicati (stato su SQLite).
 
 ---
 
 ## Modalità 2 — Più sedi, stesso account GBP
 
-Questa è la modalità consigliata se hai un unico account Google Business Profile con più sedi.
-
 ### 1. Compila `ristoranti.csv`
-Struttura:
 ```csv
 nome,citta,quartiere,keywords,cta_url
-Miscusi Prati,Roma,Prati,"pasta fresca Prati Roma, ristorante pasta Prati, cucina italiana Prati",https://miscusi.com?utm_source=gbp&utm_medium=post&utm_campaign=prati
-Miscusi Trastevere,Roma,Trastevere,"pasta fresca Trastevere Roma, ristorante pasta Trastevere, cucina italiana Trastevere",https://miscusi.com?utm_source=gbp&utm_medium=post&utm_campaign=trastevere
+Miscusi Prati,Roma,Prati,"pasta fresca Prati Roma, ristorante pasta Prati",https://miscusi.com
+Miscusi Trastevere,Roma,Trastevere,"pasta fresca Trastevere, ristorante pasta Trastevere",https://miscusi.com
 ```
 
-### 2. Lancia tutto
+### 2. Lancia
 ```bash
-python3 gbp_multi.py
+python3 gbp_multi.py --client <slug>
 ```
+Esempio: `python3 gbp_multi.py --client miscusi`
 
-Lo script fa questo:
+Lo script fa:
 1. Legge `ristoranti.csv`
-2. Usa Claude Code per creare `posts_[sede].csv` per ogni sede
-3. Apre `business.google.com/locations`
-4. Seleziona la sede
-5. Pubblica i post
-6. Passa alla sede successiva
+2. Genera `posts_[sede].csv` per ogni sede via Anthropic SDK
+3. Aggiunge UTM auto-generati a ogni `cta_url`
+4. Valida ogni CSV prima di pubblicare
+5. Apre `business.google.com/locations`
+6. Seleziona ogni sede e pubblica i post con retry automatico (3 tentativi)
+
+I profili Chrome sono isolati per cliente in `./profiles/<slug>/`.
 
 ---
 
-## Keyword research
+## Sprint 3 — API Google
 
-Prima di generare i post, fai keyword research per ogni sede.
-Esempi:
-- pasta fresca Roma Prati
-- ristorante pasta Trastevere
-- cucina italiana Parioli
-- dove mangiare pasta fresca Roma centro
+### Auto-discovery sedi
+```bash
+python3 gbp_discover.py --client <slug>
+```
+Genera `locations_<slug>.csv` con tutte le sedi dell'account GBP.
 
----
+### Metriche mensili
+```bash
+python3 gbp_metrics.py --client <slug> --month YYYY-MM
+```
+Esempio: `python3 gbp_metrics.py --client miscusi --month 2026-04`
 
-## Test consigliato
-
-Prima di lanciare 12 post per sede:
-1. fai generare **1 solo post**
-2. prova su una sola sede
-3. verifica che venga creato e programmato correttamente
-4. poi scala a 12+ post e a tutte le sedi
+Genera `reports/metrics_<slug>_YYYY-MM.csv` con impressioni, click su sito, chiamate, richieste di indicazioni — per ogni sede, per ogni giorno del mese.
 
 ---
 
 ## Note importanti
 
 - Usa Chrome di sistema, non Chromium
-- Il login Google viene salvato nella cartella `chrome-profile`
-- Non condividere `chrome-profile` tra computer diversi
-- Se Google cambia interfaccia, potrebbero servire piccoli aggiustamenti ai selettori
+- Il profilo Chrome per ogni cliente è salvato in `./profiles/<slug>/`
+- Non condividere le cartelle `profiles/` tra computer diversi
+- `.env` non deve mai essere committato su git (è in `.gitignore`)
+- I log sono salvati in `logs/gbp_YYYY-MM-DD.log`
+- In caso di errore, screenshot e `error.txt` sono salvati in `logs/run_<ts>/<location>/<n>/`
+- Lo stato SQLite in `state.db` garantisce idempotenza: i post già pubblicati vengono saltati

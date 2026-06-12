@@ -207,6 +207,10 @@ async def publish_post(
     image_path  = post.get("image", "").strip()
     cta_url     = post.get("cta_url", "").strip()
     cta_type    = post.get("cta_type", "Learn more").strip()
+    post_type   = post.get("post_type", "update").strip().lower()
+    offer_start = post.get("offer_start", "").strip()
+    offer_end   = post.get("offer_end", "").strip()
+    coupon_code = post.get("coupon_code", "").strip()
 
     if not description:
         logger.warning("    ⚠️  Descrizione vuota, salto.")
@@ -244,7 +248,25 @@ async def publish_post(
             await save_failure_artifacts(msg)
             return False
 
-        # ── STEP 3: Compila la descrizione ────────────────────────────────────
+        # ── STEP 2b: Seleziona il tipo post (Offer se richiesto) ──────────────
+        if post_type == "offer":
+            offer_tab = await find_el(frame, SELECTORS["OFFER_TAB"], timeout=4000)
+            if offer_tab:
+                await offer_tab.click()
+                await asyncio.sleep(1)
+                logger.debug("    Tipo post: Offer")
+            else:
+                logger.warning("    ⚠️  Tab Offer non trovato, procedo come Update")
+
+        # ── STEP 3: Compila titolo (obbligatorio per Offer, opzionale per Update)
+        if title:
+            title_el = await find_el(frame, SELECTORS["OFFER_TITLE_INPUT"] if post_type == "offer" else [], timeout=2000)
+            if title_el:
+                await title_el.click()
+                await title_el.fill(title)
+                await asyncio.sleep(0.3)
+
+        # ── STEP 3b: Compila la descrizione ───────────────────────────────────
         desc_el = await find_el(frame, SELECTORS["DESCRIPTION_TEXTAREA"])
         if desc_el:
             await desc_el.click()
@@ -292,6 +314,40 @@ async def publish_post(
                 url_field = await find_el(frame, SELECTORS["CTA_URL_INPUT"], timeout=3000)
                 if url_field:
                     await url_field.fill(cta_url)
+                    await asyncio.sleep(0.3)
+
+        # ── STEP 5b: Date e coupon per post Offer ─────────────────────────────
+        if post_type == "offer":
+            # Data inizio offerta
+            if offer_start:
+                try:
+                    dt_s = datetime.strptime(offer_start, "%Y-%m-%d")
+                    start_el = await find_el(frame, SELECTORS["OFFER_START_DATE"], timeout=3000)
+                    if start_el:
+                        await start_el.triple_click()
+                        await start_el.fill(dt_s.strftime("%m/%d/%Y"))
+                        await asyncio.sleep(0.3)
+                except ValueError:
+                    logger.warning(f"    ⚠️  offer_start formato non valido: {offer_start}")
+
+            # Data fine offerta
+            if offer_end:
+                try:
+                    dt_e = datetime.strptime(offer_end, "%Y-%m-%d")
+                    end_el = await find_el(frame, SELECTORS["OFFER_END_DATE"], timeout=3000)
+                    if end_el:
+                        await end_el.triple_click()
+                        await end_el.fill(dt_e.strftime("%m/%d/%Y"))
+                        await asyncio.sleep(0.3)
+                        logger.debug(f"    Data fine offerta: {offer_end}")
+                except ValueError:
+                    logger.warning(f"    ⚠️  offer_end formato non valido: {offer_end}")
+
+            # Codice coupon opzionale
+            if coupon_code:
+                coupon_el = await find_el(frame, SELECTORS["OFFER_COUPON_INPUT"], timeout=3000)
+                if coupon_el:
+                    await coupon_el.fill(coupon_code)
                     await asyncio.sleep(0.3)
 
         # ── STEP 6: Programma la data (se fornita nel CSV) ─────────────────────

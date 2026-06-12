@@ -79,4 +79,40 @@ SELECTORS: dict[str, list[str]] = {
         'a[href*="locations"]',
         'td a',
     ],
+
+    # ── Offer post ────────────────────────────────────────────────────
+    "OFFER_TAB": [
+        'button[aria-label*="offer" i]',
+        'button[aria-label*="offerta" i]',
+        'button:has-text("Offer")',
+        'button:has-text("Offerta")',
+        '[role="tab"]:has-text("Offer")',
+        '[role="tab"]:has-text("Offerta")',
+    ],
+    "OFFER_TITLE_INPUT": [
+        'input[aria-label*="offer title" i]',
+        'input[aria-label*="titolo offerta" i]',
+        'input[placeholder*="offer title" i]',
+        'input[placeholder*="titolo" i]',
+    ],
+    "OFFER_START_DATE": [
+        'input[aria-label*="start date" i]',
+        'input[aria-label*="data inizio" i]',
+        'input[placeholder*="MM/DD/YYYY"]',
+    ],
+    "OFFER_END_DATE": [
+        'input[aria-label*="end date" i]',
+        'input[aria-label*="data fine" i]',
+        'input[aria-label*="data di fine" i]',
+    ],
+    "OFFER_COUPON_INPUT": [
+        'input[aria-label*="coupon" i]',
+        'input[placeholder*="coupon" i]',
+        'input[aria-label*="codice" i]',
+    ],
+    "OFFER_LINK_INPUT": [
+        'input[aria-label*="link to redeem" i]',
+        'input[aria-label*="link per riscattare" i]',
+        'input[placeholder*="redeem" i]',
+    ],
 }

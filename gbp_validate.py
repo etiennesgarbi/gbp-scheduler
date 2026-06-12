@@ -8,6 +8,7 @@ from typing import Optional
 
 VALID_CTA_TYPES = {"LEARN_MORE", "BOOK", "ORDER", "SHOP", "SIGN_UP", "CALL",
                    "Learn more", "Book", "Order online", "Shop", "Sign up", "Call"}
+VALID_POST_TYPES = {"update", "offer"}
 URL_RE = re.compile(r"^https://")
 URL_IN_TEXT_RE = re.compile(r"https?://")
 
@@ -84,6 +85,32 @@ def validate_csv(path: str) -> list[dict]:
             # cta_type
             if cta_type and cta_type not in VALID_CTA_TYPES:
                 errors.append({"row": i, "field": "cta_type", "error": f"Tipo non valido: '{cta_type}'. Usa: {', '.join(sorted(VALID_CTA_TYPES))}"})
+
+            # post_type
+            post_type = row.get("post_type", "update").strip().lower()
+            if post_type and post_type not in VALID_POST_TYPES:
+                errors.append({"row": i, "field": "post_type", "error": f"Tipo non valido: '{post_type}'. Usa: update, offer"})
+
+            # offer_end — obbligatoria se post_type == offer
+            offer_end = row.get("offer_end", "").strip()
+            if post_type == "offer":
+                if not offer_end:
+                    errors.append({"row": i, "field": "offer_end", "error": "Obbligatoria per post di tipo offer (formato YYYY-MM-DD)"})
+                else:
+                    try:
+                        dt_end = datetime.strptime(offer_end, "%Y-%m-%d")
+                        if dt_end < datetime.now():
+                            errors.append({"row": i, "field": "offer_end", "error": f"Data fine nel passato: {offer_end}"})
+                    except ValueError:
+                        errors.append({"row": i, "field": "offer_end", "error": f"Formato non valido (usa YYYY-MM-DD): {offer_end}"})
+
+            # offer_start — opzionale, ma se presente deve essere valida
+            offer_start = row.get("offer_start", "").strip()
+            if offer_start:
+                try:
+                    datetime.strptime(offer_start, "%Y-%m-%d")
+                except ValueError:
+                    errors.append({"row": i, "field": "offer_start", "error": f"Formato non valido (usa YYYY-MM-DD): {offer_start}"})
 
     return errors
 
